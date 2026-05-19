@@ -1,7 +1,14 @@
 import type { WSMessage } from '@/types';
 import { useAuthStore } from '@/stores/authStore';
 
-const WS_URL = import.meta.env.VITE_WS_URL ?? 'ws://localhost:8080/api/ws';
+function getWsBaseUrl(): string {
+  const envUrl = import.meta.env.VITE_WS_URL;
+  if (envUrl) return envUrl;
+
+  // Derive from current page URL — works for any deployment
+  const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${proto}//${window.location.host}/api/ws`;
+}
 
 export type WSEventHandler = (message: WSMessage) => void;
 
@@ -11,7 +18,8 @@ export function createTerminalSocket(
   onClose?: () => void,
 ): WebSocket {
   const tokens = useAuthStore.getState().tokens;
-  const url = `${WS_URL}/terminals/${terminalId}?token=${tokens?.accessToken ?? ''}`;
+  const wsBase = getWsBaseUrl();
+  const url = `${wsBase}/terminals/${terminalId}?token=${tokens?.accessToken ?? ''}`;
 
   const ws = new WebSocket(url);
 
