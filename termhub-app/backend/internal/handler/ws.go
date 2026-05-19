@@ -63,7 +63,7 @@ func NewWSHandler(
 // Note: NO auth middleware — authentication is done inside the handler via query param.
 func (h *WSHandler) Routes() chi.Router {
 	r := chi.NewRouter()
-	r.Get("/terminal/{id}", h.HandleTerminal)
+	r.Get("/terminals/{id}", h.HandleTerminal)
 	return r
 }
 
@@ -103,7 +103,7 @@ func (h *WSHandler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 4. Verify terminal ownership.
+	// 4. Verify terminal ownership and get terminal config.
 	terminal, err := h.terminalService.Get(r.Context(), terminalID, userID)
 	if err != nil {
 		log.Error().Err(err).
@@ -113,19 +113,32 @@ func (h *WSHandler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "terminal not found or access denied", http.StatusForbidden)
 		return
 	}
-	_ = terminal
 
-	// 5. Get PTY session.
+	// 5. Get or auto-spawn PTY session.
+	// If the backend was restarted, in-memory PTY sessions are gone but the
+	// terminal record persists in the DB. Re-spawn transparently on connect.
 	ptySession, ok := h.ptyManager.Get(terminalID)
 	if !ok {
-		http.Error(w, "terminal PTY session not found", http.StatusNotFound)
-		return
+		log.Info().
+			Str("terminal_id", terminalIDStr).
+			Str("shell", terminal.Shell).
+			Str("cwd", terminal.CWD).
+			Msg("PTY not found — auto-spawning on WebSocket connect")
+
+		ptySession, err = h.ptyManager.Create(terminalID, userID, terminal.Shell, terminal.CWD)
+		if err != nil {
+			log.Error().Err(err).Str("terminal_id", terminalIDStr).Msg("failed to auto-spawn PTY")
+			http.Error(w, "failed to start terminal session", http.StatusInternalServerError)
+			return
+		}
 	}
 
 	// 6. Upgrade to WebSocket.
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to upgrade websocket connection")
+		// If we auto-spawned a PTY above, the terminal already existed in DB,
+		// so the PTY will be reused on the next connect attempt — no leak.
 		return
 	}
 
@@ -233,11 +246,11 @@ func (h *WSHandler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 	client.ReadPump(ptyWriter, resizeFn)
 
 	// ReadPump returned — connection is closed, client already unregistered.
-	// Audit log the WebSocket disconnection.
+	// Audit log the WebSocket disconnection (terminal may already be deleted, so ignore FK errors).
 	if auditErr := h.auditService.Log(context.Background(), &userID, &terminalID, domain.AuditActionTerminalDisconnect, map[string]interface{}{
 		"client_id": client.ID,
 	}); auditErr != nil {
-		log.Error().Err(auditErr).Str("terminal_id", terminalIDStr).Msg("failed to write disconnect audit log")
+		log.Debug().Err(auditErr).Str("terminal_id", terminalIDStr).Msg("disconnect audit log skipped (terminal may be deleted)")
 	}
 
 	log.Info().

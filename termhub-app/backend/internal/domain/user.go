@@ -36,6 +36,6 @@ type User struct {
 	Username     string    `json:"username" db:"username"`
 	PasswordHash string    `json:"-" db:"password_hash"`
 	Role         Role      `json:"role" db:"role"`
-	CreatedAt    time.Time `json:"created_at" db:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at" db:"updated_at"`
+	CreatedAt    time.Time `json:"createdAt" db:"created_at"`
+	UpdatedAt    time.Time `json:"updatedAt" db:"updated_at"`
 }

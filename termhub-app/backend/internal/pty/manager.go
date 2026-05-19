@@ -6,6 +6,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -34,9 +37,40 @@ type Manager struct {
 	logger   zerolog.Logger
 }
 
+// defaultShell returns the user's login shell from $SHELL, or /bin/bash.
+func defaultShell() string {
+	if s := os.Getenv("SHELL"); s != "" {
+		return s
+	}
+	return "/bin/bash"
+}
+
+// resolveCWD expands ~ and returns a valid absolute directory.
+// Falls back to the user's home directory if the path is empty or unresolvable.
+func resolveCWD(cwd string) string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = "/tmp"
+	}
+
+	if cwd == "" || cwd == "~" {
+		return home
+	}
+
+	if strings.HasPrefix(cwd, "~/") {
+		cwd = filepath.Join(home, cwd[2:])
+	}
+
+	// Verify the directory exists; fall back to home if not.
+	if info, err := os.Stat(cwd); err != nil || !info.IsDir() {
+		return home
+	}
+
+	return cwd
+}
+
 // NewManager creates a new PTY Manager.
-func NewManager() *Manager {
-	return &Manager{
+func NewManager() *Manager {	return &Manager{
 		sessions: make(map[uuid.UUID]*Session),
 		logger:   log.With().Str("component", "pty-manager").Logger(),
 	}
@@ -45,17 +79,22 @@ func NewManager() *Manager {
 // Create starts a new PTY session with the given shell command.
 func (m *Manager) Create(id, ownerID uuid.UUID, shell string, cwd string) (*Session, error) {
 	if shell == "" {
-		shell = "/bin/bash"
+		shell = defaultShell()
 	}
-	if cwd == "" {
-		cwd = "/tmp"
-	}
+
+	// Resolve cwd: expand ~ and fall back to home dir if empty or invalid.
+	cwd = resolveCWD(cwd)
 
 	cmd := exec.Command(shell)
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
-	// Set process group so we can signal the entire group on kill.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
+	// On Linux we set Setpgid so we can signal the whole process group.
+	// On macOS, creack/pty calls setsid() internally which already creates a
+	// new process group; adding Setpgid causes EPERM.
+	if runtime.GOOS == "linux" {
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	}
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -64,7 +103,7 @@ func (m *Manager) Create(id, ownerID uuid.UUID, shell string, cwd string) (*Sess
 			Str("shell", shell).
 			Str("cwd", cwd).
 			Msg("failed to start PTY session")
-		return nil, fmt.Errorf("pty: failed to start shell %q: %w", shell, err)
+		return nil, fmt.Errorf("pty: failed to spawn PTY: %w", err)
 	}
 
 	// Set a default window size.
@@ -205,7 +244,8 @@ func (s *Session) IsClosed() bool {
 	return s.closed
 }
 
-// kill terminates the session with SIGTERM, then SIGKILL after timeout.
+// kill terminates the session: closes the PTY first (sends HUP to shell),
+// then waits up to 2s for the process to exit, then SIGKILL.
 func (s *Session) kill() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -214,34 +254,23 @@ func (s *Session) kill() error {
 	}
 	s.closed = true
 
-	if s.cmd.Process != nil {
-		// Try SIGTERM to process group first.
-		pgid, err := syscall.Getpgid(s.cmd.Process.Pid)
-		if err == nil {
-			_ = syscall.Kill(-pgid, syscall.SIGTERM)
-		} else {
-			_ = s.cmd.Process.Signal(syscall.SIGTERM)
-		}
+	// Close the PTY master — this sends SIGHUP to the shell, which causes
+	// it to exit naturally on macOS and Linux.
+	ptmxErr := s.ptmx.Close()
 
-		// Wait with timeout for graceful exit.
+	if s.cmd.Process != nil {
 		done := make(chan error, 1)
-		go func() {
-			done <- s.cmd.Wait()
-		}()
+		go func() { done <- s.cmd.Wait() }()
 
 		select {
 		case <-done:
-			// Process exited gracefully.
-		case <-time.After(3 * time.Second):
-			// Force kill.
-			if pgid, err := syscall.Getpgid(s.cmd.Process.Pid); err == nil {
-				_ = syscall.Kill(-pgid, syscall.SIGKILL)
-			} else {
-				_ = s.cmd.Process.Kill()
-			}
+			// Exited after PTY close — done.
+		case <-time.After(2 * time.Second):
+			// Still alive — force kill.
+			_ = s.cmd.Process.Kill()
 			<-done
 		}
 	}
 
-	return s.ptmx.Close()
+	return ptmxErr
 }

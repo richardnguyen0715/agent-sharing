@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   IconX,
   IconMaximize,
@@ -5,6 +6,7 @@ import {
   IconCopy,
   IconPlayerRecord,
   IconTerminal2,
+  IconLoader2,
 } from '@tabler/icons-react';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useUIStore } from '@/stores/uiStore';
@@ -14,13 +16,24 @@ interface TerminalToolbarProps {
 }
 
 export function TerminalToolbar({ terminalId }: TerminalToolbarProps) {
-  const removeTab = useTerminalStore((s) => s.removeTab);
+  const deleteTerminal = useTerminalStore((s) => s.deleteTerminal);
   const terminals = useTerminalStore((s) => s.terminals);
   const toggleRightPanel = useUIStore((s) => s.toggleRightPanel);
+  const [killing, setKilling] = useState(false);
 
   const terminal = terminals.find((t) => t.id === terminalId);
   const shellName = terminal?.shell.split('/').pop() ?? 'shell';
   const cwd = terminal?.cwd ?? '~';
+
+  const handleKill = async () => {
+    if (killing) return;
+    setKilling(true);
+    try {
+      await deleteTerminal(terminalId);
+    } catch {
+      setKilling(false);
+    }
+  };
 
   return (
     <div className="flex h-9 shrink-0 items-center justify-between border-b border-terminal-border bg-terminal-bg-toolbar px-3">
@@ -57,11 +70,13 @@ export function TerminalToolbar({ terminalId }: TerminalToolbarProps) {
           <IconMaximize size={14} />
         </button>
         <button
-          onClick={() => removeTab(terminalId)}
-          className="rounded p-1 text-terminal-output hover:bg-terminal-error hover:text-white"
-          aria-label="Close terminal"
+          onClick={handleKill}
+          disabled={killing}
+          className="rounded p-1 text-terminal-output hover:bg-terminal-error hover:text-white disabled:opacity-50"
+          aria-label="Kill terminal"
+          title="Kill terminal"
         >
-          <IconX size={14} />
+          {killing ? <IconLoader2 size={14} className="animate-spin" /> : <IconX size={14} />}
         </button>
       </div>
     </div>

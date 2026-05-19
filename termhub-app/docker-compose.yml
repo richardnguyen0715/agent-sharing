@@ -3,9 +3,12 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        VITE_API_URL: /api
+        VITE_WS_URL: ""
     container_name: termhub-frontend
     ports:
-      - "3000:80"
+      - "${FRONTEND_PORT:-3000}:80"
     depends_on:
       backend:
         condition: service_healthy
@@ -18,22 +21,22 @@ services:
     container_name: termhub-backend
     environment:
       PORT: "8080"
-      DATABASE_URL: postgres://termhub:termhub@postgres:5432/termhub?sslmode=disable
+      DATABASE_URL: postgres://termhub:${POSTGRES_PASSWORD:-termhub}@postgres:5432/termhub?sslmode=disable
       REDIS_URL: redis://redis:6379
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production-use-a-long-random-string}
-      JWT_ACCESS_TTL: 15m
-      JWT_REFRESH_TTL: 168h
-      CORS_ORIGINS: http://localhost:3000
-      LOG_LEVEL: info
-    ports:
-      - "8080:8080"
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-168h}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    expose:
+      - "8080"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/api/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -49,8 +52,8 @@ services:
       POSTGRES_USER: termhub
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-termhub}
       POSTGRES_DB: termhub
-    ports:
-      - "5432:5432"
+    expose:
+      - "5432"
     volumes:
       - termhub-pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -63,8 +66,9 @@ services:
   redis:
     image: redis:7-alpine
     container_name: termhub-redis
-    ports:
-      - "6379:6379"
+    command: redis-server --appendonly yes
+    expose:
+      - "6379"
     volumes:
       - termhub-redis:/data
     healthcheck:

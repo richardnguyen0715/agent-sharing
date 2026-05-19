@@ -207,7 +207,7 @@ func (c *Client) ReadPump(ptyWriter func([]byte) error, resizeFn func(cols, rows
 	for {
 		_, message, err := c.Conn.ReadMessage()
 		if err != nil {
-			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
+			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure, websocket.CloseNoStatusReceived) {
 				log.Error().Err(err).Str("client_id", c.ID).Msg("unexpected websocket close")
 			}
 			return

@@ -27,16 +27,21 @@ type RegisterRequest struct {
 	Role     string `json:"role"`
 }
 
-// RefreshRequest represents the token refresh request body.
-type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token"`
+// tokensDTO is the JSON representation of an issued token pair.
+type tokensDTO struct {
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken"`
 }
 
 // AuthResponse represents the authentication response body.
 type AuthResponse struct {
-	AccessToken  string       `json:"access_token"`
-	RefreshToken string       `json:"refresh_token"`
-	User         *domain.User `json:"user"`
+	User   *domain.User `json:"user"`
+	Tokens tokensDTO    `json:"tokens"`
+}
+
+// RefreshRequest represents the token refresh request body.
+type RefreshRequest struct {
+	RefreshToken string `json:"refreshToken"`
 }
 
 // AuthHandler handles authentication-related HTTP requests.
@@ -95,9 +100,8 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, AuthResponse{
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		User:         user,
+		User:   user,
+		Tokens: tokensDTO{AccessToken: accessToken, RefreshToken: refreshToken},
 	})
 }
 
@@ -154,6 +158,14 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Issue tokens immediately so the user is logged in after registration.
+	accessToken, refreshToken, err := h.authService.IssueTokens(user)
+	if err != nil {
+		log.Error().Err(err).Str("username", req.Username).Msg("failed to issue tokens after registration")
+		writeError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+
 	// Audit log the successful registration.
 	userID := &user.ID
 	if auditErr := h.auditService.Log(r.Context(), userID, nil, domain.AuditActionUserRegister, map[string]interface{}{
@@ -164,8 +176,9 @@ func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(auditErr).Str("user_id", user.ID.String()).Msg("failed to write register audit log")
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"user": user,
+	writeJSON(w, http.StatusCreated, AuthResponse{
+		User:   user,
+		Tokens: tokensDTO{AccessToken: accessToken, RefreshToken: refreshToken},
 	})
 }
 
@@ -193,9 +206,9 @@ func (h *AuthHandler) Refresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]string{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
+	writeJSON(w, http.StatusOK, tokensDTO{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
 	})
 }
 
@@ -218,7 +231,5 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"user": user,
-	})
+	writeJSON(w, http.StatusOK, user)
 }

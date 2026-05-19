@@ -47,8 +47,8 @@ export interface AuthTokens {
 }
 
 export interface AdminMetrics {
-  total_users: number;
-  total_terminals: number;
-  active_terminals: number;
-  active_connections: number;
+  totalUsers: number;
+  totalTerminals: number;
+  activeTerminals: number;
+  activeConnections: number;
 }

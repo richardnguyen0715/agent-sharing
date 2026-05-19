@@ -27,9 +27,9 @@ const (
 // AuditLog records a security-relevant event in the system.
 type AuditLog struct {
 	ID         uuid.UUID       `json:"id" db:"id"`
-	UserID     *uuid.UUID      `json:"user_id,omitempty" db:"user_id"`
-	TerminalID *uuid.UUID      `json:"terminal_id,omitempty" db:"terminal_id"`
+	UserID     *uuid.UUID      `json:"userId,omitempty" db:"user_id"`
+	TerminalID *uuid.UUID      `json:"terminalId,omitempty" db:"terminal_id"`
 	Action     AuditAction     `json:"action" db:"action"`
 	Metadata   json.RawMessage `json:"metadata,omitempty" db:"metadata"`
-	CreatedAt  time.Time       `json:"created_at" db:"created_at"`
+	CreatedAt  time.Time       `json:"createdAt" db:"created_at"`
 }

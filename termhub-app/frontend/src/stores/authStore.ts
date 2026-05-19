@@ -90,7 +90,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     if (isInitialized) return;
 
     if (!tokens?.accessToken) {
-      set({ isInitialized: true, isLoading: false });
+      // If somehow marked authenticated without tokens, clear auth state
+      set({ isAuthenticated: false, user: null, tokens: null, isInitialized: true, isLoading: false });
+      persistTokens(null);
       return;
     }
 

@@ -50,7 +50,7 @@ func (h *AdminHandler) Routes() chi.Router {
 	r.Use(middleware.RequireRole(domain.RoleAdmin))
 
 	r.Get("/users", h.ListUsers)
-	r.Get("/audit-logs", h.ListAuditLogs)
+	r.Get("/audit", h.ListAuditLogs)
 	r.Get("/terminals", h.ListAllTerminals)
 	r.Get("/metrics", h.Metrics)
 
@@ -82,10 +82,7 @@ func (h *AdminHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
 		users = []*domain.User{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"users": users,
-		"count": len(users),
-	})
+	writeJSON(w, http.StatusOK, users)
 }
 
 // ListAuditLogs returns audit log entries with pagination (admin only).
@@ -113,10 +110,7 @@ func (h *AdminHandler) ListAuditLogs(w http.ResponseWriter, r *http.Request) {
 		logs = []*domain.AuditLog{}
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"audit_logs": logs,
-		"count":      len(logs),
-	})
+	writeJSON(w, http.StatusOK, logs)
 }
 
 // ListAllTerminals returns all terminals across all users (admin only).
@@ -128,10 +122,7 @@ func (h *AdminHandler) ListAllTerminals(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"terminals": terminals,
-		"count":     len(terminals),
-	})
+	writeJSON(w, http.StatusOK, terminals)
 }
 
 // Metrics returns basic system metrics (admin only).
@@ -159,10 +150,9 @@ func (h *AdminHandler) Metrics(w http.ResponseWriter, r *http.Request) {
 	wsConnections := h.hub.ClientCount()
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"users":               userCount,
-		"total_terminals":     totalTerminals,
-		"active_terminals":    activeTerminals,
-		"active_pty_sessions": activePTYSessions,
-		"ws_connections":      wsConnections,
+		"totalUsers":       userCount,
+		"totalTerminals":   totalTerminals,
+		"activeTerminals":  activeTerminals,
+		"activeConnections": activePTYSessions + wsConnections,
 	})
 }

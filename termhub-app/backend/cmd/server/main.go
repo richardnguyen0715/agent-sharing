@@ -13,12 +13,14 @@ import (
 	"github.com/go-chi/chi/v5"
 	chimiddleware "github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/joho/godotenv"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
 	"github.com/termhub/backend/internal/config"
 	"github.com/termhub/backend/internal/handler"
 	"github.com/termhub/backend/internal/middleware"
+	"github.com/termhub/backend/internal/migrate"
 	"github.com/termhub/backend/internal/policy"
 	ptymanager "github.com/termhub/backend/internal/pty"
 	"github.com/termhub/backend/internal/recording"
@@ -34,6 +36,11 @@ func main() {
 		Timestamp().
 		Caller().
 		Logger()
+
+	// Load .env file if present (ignored in production where env vars are set directly).
+	if err := godotenv.Load(); err != nil {
+		log.Debug().Msg(".env file not found, using environment variables")
+	}
 
 	// Load configuration from environment variables.
 	cfg, err := config.Load()
@@ -62,6 +69,11 @@ func main() {
 		log.Fatal().Err(err).Msg("failed to ping database")
 	}
 	log.Info().Msg("connected to PostgreSQL")
+
+	// Run database migrations.
+	if err := migrate.Run(ctx, dbpool); err != nil {
+		log.Fatal().Err(err).Msg("failed to run migrations")
+	}
 
 	// Initialize PTY Manager.
 	ptyMgr := ptymanager.NewManager()
@@ -142,18 +154,27 @@ func main() {
 	sig := <-quit
 	log.Info().Str("signal", sig.String()).Msg("shutting down server")
 
-	// Clean up PTY sessions.
-	ptyMgr.Cleanup()
+	// Clean up PTY sessions and recordings concurrently with HTTP shutdown.
+	cleanupDone := make(chan struct{})
+	go func() {
+		ptyMgr.Cleanup()
+		recordingMgr.Cleanup()
+		close(cleanupDone)
+	}()
 
-	// Clean up active recordings.
-	recordingMgr.Cleanup()
-
-	// Give outstanding requests 30 seconds to complete.
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Give outstanding HTTP requests 5 seconds to complete.
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Fatal().Err(err).Msg("server forced to shutdown")
+	}
+
+	// Wait for cleanup to finish (max 3s after HTTP shutdown).
+	select {
+	case <-cleanupDone:
+	case <-time.After(3 * time.Second):
+		log.Warn().Msg("cleanup timed out, exiting anyway")
 	}
 
 	log.Info().Msg("server stopped gracefully")

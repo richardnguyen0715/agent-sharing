@@ -19,18 +19,20 @@ export function useTerminal({ terminalId }: UseTerminalOptions) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [dimensions, setDimensions] = useState({ cols: 80, rows: 24 });
+  const [containerReady, setContainerReady] = useState(false);
 
   const terminalIdRef = useRef(terminalId);
   terminalIdRef.current = terminalId;
 
   const attach = useCallback((el: HTMLDivElement | null) => {
     containerRef.current = el;
+    setContainerReady(el !== null);
   }, []);
 
   // Initialize xterm + websocket when terminalId and container are available
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || !terminalId) return;
+    if (!container || !terminalId || !containerReady) return;
 
     const terminal = new Terminal({
       fontFamily: '"JetBrains Mono", monospace',
@@ -130,7 +132,7 @@ export function useTerminal({ terminalId }: UseTerminalOptions) {
       fitRef.current = null;
       setIsConnected(false);
     };
-  }, [terminalId]);
+  }, [terminalId, containerReady]);
 
   const fit = useCallback(() => {
     fitRef.current?.fit();

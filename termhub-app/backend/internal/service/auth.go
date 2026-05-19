@@ -208,6 +208,20 @@ func (s *AuthService) GetUserRepo() *repository.UserRepository {
 	return s.userRepo
 }
 
+// IssueTokens generates a fresh access+refresh token pair for the given user.
+// Used after registration so the user is immediately logged in.
+func (s *AuthService) IssueTokens(user *domain.User) (accessToken, refreshToken string, err error) {
+	accessToken, err = s.generateToken(user, tokenTypeAccess, s.accessTTL)
+	if err != nil {
+		return "", "", fmt.Errorf("auth: failed to generate access token: %w", err)
+	}
+	refreshToken, err = s.generateToken(user, tokenTypeRefresh, s.refreshTTL)
+	if err != nil {
+		return "", "", fmt.Errorf("auth: failed to generate refresh token: %w", err)
+	}
+	return accessToken, refreshToken, nil
+}
+
 // generateToken creates a signed JWT with the given user data, type, and TTL.
 func (s *AuthService) generateToken(user *domain.User, tokenType string, ttl time.Duration) (string, error) {
 	now := time.Now().UTC()

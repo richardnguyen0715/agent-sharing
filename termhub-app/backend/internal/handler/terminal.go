@@ -17,7 +17,7 @@ type CreateTerminalRequest struct {
 	Title    string `json:"title"`
 	CWD      string `json:"cwd"`
 	Shell    string `json:"shell"`
-	ColorTag string `json:"color_tag"`
+	ColorTag string `json:"colorTag"`
 }
 
 // ResizeTerminalRequest represents the resize terminal request body.
@@ -89,9 +89,7 @@ func (h *TerminalHandler) Create(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(auditErr).Str("terminal_id", termID.String()).Msg("failed to write terminal create audit log")
 	}
 
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"terminal": terminal,
-	})
+	writeJSON(w, http.StatusCreated, terminal)
 }
 
 // List returns all terminals for the authenticated user.
@@ -115,9 +113,7 @@ func (h *TerminalHandler) List(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"terminals": terminals,
-	})
+	writeJSON(w, http.StatusOK, terminals)
 }
 
 // GetByID retrieves a specific terminal.
@@ -155,9 +151,7 @@ func (h *TerminalHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"terminal": terminal,
-	})
+	writeJSON(w, http.StatusOK, terminal)
 }
 
 // Delete terminates and removes a terminal.
@@ -180,6 +174,13 @@ func (h *TerminalHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Audit log BEFORE delete — terminal_id FK must still exist.
+	if auditErr := h.auditService.Log(r.Context(), &ownerID, &terminalID, domain.AuditActionTerminalDelete, map[string]interface{}{
+		"ip_address": r.RemoteAddr,
+	}); auditErr != nil {
+		log.Error().Err(auditErr).Str("terminal_id", terminalID.String()).Msg("failed to write terminal delete audit log")
+	}
+
 	if err := h.terminalService.Delete(r.Context(), terminalID, ownerID); err != nil {
 		if errors.Is(err, service.ErrTerminalNotFound) {
 			writeError(w, http.StatusNotFound, "terminal not found")
@@ -192,13 +193,6 @@ func (h *TerminalHandler) Delete(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Str("terminal_id", terminalID.String()).Msg("failed to delete terminal")
 		writeError(w, http.StatusInternalServerError, "failed to delete terminal")
 		return
-	}
-
-	// Audit log the terminal deletion.
-	if auditErr := h.auditService.Log(r.Context(), &ownerID, &terminalID, domain.AuditActionTerminalDelete, map[string]interface{}{
-		"ip_address": r.RemoteAddr,
-	}); auditErr != nil {
-		log.Error().Err(auditErr).Str("terminal_id", terminalID.String()).Msg("failed to write terminal delete audit log")
 	}
 
 	writeJSON(w, http.StatusOK, map[string]string{
