@@ -7,10 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -89,12 +87,9 @@ func (m *Manager) Create(id, ownerID uuid.UUID, shell string, cwd string) (*Sess
 	cmd.Dir = cwd
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 
-	// On Linux we set Setpgid so we can signal the whole process group.
-	// On macOS, creack/pty calls setsid() internally which already creates a
-	// new process group; adding Setpgid causes EPERM.
-	if runtime.GOOS == "linux" {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	}
+	// Note: creack/pty handles setsid() internally on all platforms.
+	// Do NOT set Setpgid or Setsid — it conflicts with creack/pty and causes
+	// "operation not permitted" in Docker containers.
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
