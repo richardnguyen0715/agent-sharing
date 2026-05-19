@@ -11,7 +11,8 @@
 #   - Docker Engine + Docker Compose plugin installed
 #   - A Tailscale account (https://tailscale.com)
 
-set -euo pipefail
+set -uo pipefail
+# Note: not using -e — we handle errors explicitly to avoid silent exits.
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -64,24 +65,49 @@ fi
 
 # ── Step 2: Authenticate Tailscale ──────────────────────────────
 
-TS_STATUS=$(tailscale status --json 2>/dev/null | grep -o '"BackendState":"[^"]*"' | cut -d'"' -f4 || echo "NeedsLogin")
+TS_STATUS=$(tailscale status --json 2>/dev/null | grep -o '"BackendState":"[^"]*"' | cut -d'"' -f4 || true)
 
 if [[ "$TS_STATUS" != "Running" ]]; then
     info "Tailscale is not logged in. Starting authentication..."
     echo ""
     echo "  A login URL will appear below. Open it in your browser to authenticate."
     echo ""
-    tailscale up --hostname=termhub
+    tailscale up --hostname=termhub || true
+    # Wait for Tailscale to fully connect
+    sleep 3
     log "Tailscale authenticated"
 else
     log "Tailscale is already running"
 fi
 
 # Get the Tailscale FQDN
-TS_FQDN=$(tailscale status --json | grep -o '"DNSName":"[^"]*"' | head -1 | cut -d'"' -f4 | sed 's/\.$//')
+TS_FQDN=$(tailscale status --json 2>/dev/null | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    me = data.get('Self', {})
+    dns = me.get('DNSName', '')
+    print(dns.rstrip('.'))
+except:
+    print('')
+" 2>/dev/null || true)
+
+if [[ -z "$TS_FQDN" ]]; then
+    warn "Could not auto-detect Tailscale FQDN. Trying hostname-based fallback..."
+    TS_FQDN=$(tailscale whois --json $(tailscale ip -4) 2>/dev/null | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    print(data.get('Node', {}).get('Name', '').rstrip('.'))
+except:
+    print('')
+" 2>/dev/null || true)
+fi
 
 if [[ -z "$TS_FQDN" ]]; then
     err "Could not determine Tailscale FQDN"
+    echo "  Run 'tailscale status' to check your connection."
+    echo "  Then set CORS_ORIGINS manually in .env and re-run."
     exit 1
 fi
 
@@ -108,9 +134,11 @@ if grep -q "POSTGRES_PASSWORD=change-me\|POSTGRES_PASSWORD=termhub" .env 2>/dev/
 fi
 
 # Set CORS to Tailscale FQDN
-if ! grep -q "CORS_ORIGINS=https://${TS_FQDN}" .env 2>/dev/null; then
-    if grep -q "CORS_ORIGINS=" .env; then
-        sed -i "s|CORS_ORIGINS=.*|CORS_ORIGINS=https://${TS_FQDN}|" .env
+if ! grep -q "^CORS_ORIGINS=https://${TS_FQDN}" .env 2>/dev/null; then
+    if grep -q "^CORS_ORIGINS=" .env; then
+        sed -i "s|^CORS_ORIGINS=.*|CORS_ORIGINS=https://${TS_FQDN}|" .env
+    elif grep -q "^# *CORS_ORIGINS=" .env; then
+        sed -i "s|^# *CORS_ORIGINS=.*|CORS_ORIGINS=https://${TS_FQDN}|" .env
     else
         echo "CORS_ORIGINS=https://${TS_FQDN}" >> .env
     fi
