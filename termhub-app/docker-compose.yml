@@ -19,6 +19,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: termhub-backend
+    init: true
     environment:
       PORT: "8080"
       DATABASE_URL: postgres://termhub:${POSTGRES_PASSWORD:-termhub}@postgres:5432/termhub?sslmode=disable

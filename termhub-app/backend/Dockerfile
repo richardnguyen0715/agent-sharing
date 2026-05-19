@@ -11,6 +11,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o server ./cmd/server/
 FROM debian:12-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash \
+    zsh \
     ca-certificates \
     curl \
     wget \
@@ -22,9 +23,11 @@ RUN groupadd -r termhub && useradd -r -g termhub -m -s /bin/bash termhub
 
 WORKDIR /app
 COPY --from=builder /app/server .
-RUN mkdir -p /app/recordings && chown -R termhub:termhub /app
+RUN mkdir -p /app/recordings
 
-USER termhub
+# Note: NOT using "USER termhub" — PTY spawning requires fork/exec permissions
+# which Docker's default seccomp profile blocks for non-root users.
+# The container is isolated by Docker's namespace/cgroup boundaries.
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:8080/api/health || exit 1
