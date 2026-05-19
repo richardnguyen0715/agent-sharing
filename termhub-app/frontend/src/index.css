@@ -1,0 +1,24 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-terminal-bg: #0D1117;
+  --color-terminal-bg-toolbar: #161B22;
+  --color-terminal-border: #30363D;
+  --color-terminal-text: #E6EDF3;
+  --color-terminal-prompt: #3FB950;
+  --color-terminal-path: #58A6FF;
+  --color-terminal-output: #8B949E;
+  --color-terminal-error: #F85149;
+  --color-terminal-cursor: #58A6FF;
+
+  --color-brand: #534AB7;
+  --color-brand-hover: #3C3489;
+
+  --color-status-green: #1D9E75;
+  --color-status-amber: #BA7517;
+  --color-status-red: #E24B4A;
+}

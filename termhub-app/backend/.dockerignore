@@ -1,0 +1,5 @@
+.env
+.env.*
+recordings/
+*.md
+.git
