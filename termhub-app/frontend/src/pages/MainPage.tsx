@@ -5,6 +5,7 @@ import { useTerminalStore } from '@/stores/terminalStore';
 
 export function MainPage() {
   const fetchTerminals = useTerminalStore((s) => s.fetchTerminals);
+  const tabs = useTerminalStore((s) => s.tabs);
   const activeTabId = useTerminalStore((s) => s.activeTabId);
 
   useEffect(() => {
@@ -13,7 +14,20 @@ export function MainPage() {
 
   return (
     <AppLayout>
-      <TerminalPane terminalId={activeTabId} />
+      {tabs.length === 0 ? (
+        <TerminalPane terminalId={null} />
+      ) : (
+        <div className="relative h-full">
+          {tabs.map((tab) => (
+            <div key={tab.terminalId} className="absolute inset-0">
+              <TerminalPane
+                terminalId={tab.terminalId}
+                active={tab.terminalId === activeTabId}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </AppLayout>
   );
 }

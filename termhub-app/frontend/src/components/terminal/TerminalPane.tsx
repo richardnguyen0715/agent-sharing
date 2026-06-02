@@ -6,10 +6,14 @@ import { IconTerminal2 } from '@tabler/icons-react';
 
 interface TerminalPaneProps {
   terminalId: string | null;
+  active?: boolean;
 }
 
-export function TerminalPane({ terminalId }: TerminalPaneProps) {
-  const { terminalRef, isConnected, dimensions } = useTerminal({ terminalId });
+export function TerminalPane({ terminalId, active = true }: TerminalPaneProps) {
+  const { terminalRef, isConnected, dimensions } = useTerminal({
+    terminalId,
+    active,
+  });
 
   if (!terminalId) {
     return (
@@ -23,8 +27,10 @@ export function TerminalPane({ terminalId }: TerminalPaneProps) {
     );
   }
 
+  // Keep mounted when inactive so the xterm buffer + WebSocket stay alive.
+  // Hiding via CSS (not unmounting) preserves scrollback and the live prompt.
   return (
-    <div className="flex h-full flex-col">
+    <div className={active ? 'flex h-full flex-col' : 'hidden'}>
       <TerminalToolbar terminalId={terminalId} />
       <TerminalScreen terminalRef={terminalRef} />
       <StatusBar

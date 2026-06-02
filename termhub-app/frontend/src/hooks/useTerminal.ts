@@ -10,9 +10,10 @@ import type { WSMessage } from '@/types';
 
 interface UseTerminalOptions {
   terminalId: string | null;
+  active?: boolean;
 }
 
-export function useTerminal({ terminalId }: UseTerminalOptions) {
+export function useTerminal({ terminalId, active = true }: UseTerminalOptions) {
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -137,6 +138,28 @@ export function useTerminal({ terminalId }: UseTerminalOptions) {
   const fit = useCallback(() => {
     fitRef.current?.fit();
   }, []);
+
+  // When this pane becomes visible, re-fit (it had 0 size while hidden) and
+  // re-sync size to the PTY. The buffer is preserved because the terminal is
+  // kept mounted, so the existing prompt/output stays on screen.
+  useEffect(() => {
+    if (!active) return;
+    const terminal = termRef.current;
+    const fitAddon = fitRef.current;
+    const ws = wsRef.current;
+    if (!terminal || !fitAddon) return;
+
+    const raf = requestAnimationFrame(() => {
+      fitAddon.fit();
+      setDimensions({ cols: terminal.cols, rows: terminal.rows });
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        sendResize(ws, terminal.cols, terminal.rows);
+      }
+      terminal.scrollToBottom();
+      terminal.focus();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [active, containerReady]);
 
   return {
     terminalRef: attach,
