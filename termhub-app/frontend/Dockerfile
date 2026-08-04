@@ -8,7 +8,9 @@ ARG VITE_API_URL=/api
 ARG VITE_WS_URL
 ENV VITE_API_URL=${VITE_API_URL}
 ENV VITE_WS_URL=${VITE_WS_URL}
-RUN npm run build
+# Monaco's build (many per-language chunks) exceeds Node's default ~2GB
+# heap on memory-constrained build hosts — raise it explicitly.
+RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build
 
 # Serve stage
 FROM nginx:alpine
