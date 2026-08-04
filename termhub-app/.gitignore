@@ -27,5 +27,8 @@ data/
 # Recordings
 backend/recordings/*.cast
 
+# Uploads
+backend/uploads/
+
 # Logs
 *.log

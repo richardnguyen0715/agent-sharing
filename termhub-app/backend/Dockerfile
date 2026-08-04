@@ -23,7 +23,7 @@ RUN groupadd -r termhub && useradd -r -g termhub -m -s /bin/bash termhub
 
 WORKDIR /app
 COPY --from=builder /app/server .
-RUN mkdir -p /app/recordings
+RUN mkdir -p /app/recordings /app/uploads
 
 # Note: NOT using "USER termhub" — PTY spawning requires fork/exec permissions
 # which Docker's default seccomp profile blocks for non-root users.

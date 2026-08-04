@@ -6,7 +6,13 @@ import {
   sendInput,
   sendResize,
 } from '@/services/websocket';
+import { uploadTerminalFile } from '@/services/api';
 import type { WSMessage } from '@/types';
+
+/** Shell-quotes a path so spaces/special characters paste safely into the terminal. */
+function shellQuote(path: string): string {
+  return `'${path.replace(/'/g, "'\\''")}'`;
+}
 
 interface UseTerminalOptions {
   terminalId: string | null;
@@ -80,30 +86,48 @@ export function useTerminal({ terminalId, active = true }: UseTerminalOptions) {
     termRef.current = terminal;
     fitRef.current = fitAddon;
 
-    // Connect WebSocket
+    let disposed = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempt = 0;
+
     const onMessage = (msg: WSMessage) => {
       if ((msg.type === 'output' || msg.type === 'stdout') && msg.data) {
         terminal.write(msg.data);
       }
     };
 
-    const onClose = () => {
-      setIsConnected(false);
-    };
+    // Connect (and reconnect) the WebSocket. Handlers below always read
+    // wsRef.current rather than closing over a specific socket instance, so
+    // input keeps flowing to whichever connection is currently live instead
+    // of silently going nowhere after a reconnect.
+    const connect = () => {
+      if (disposed) return;
 
-    const ws = createTerminalSocket(terminalId, onMessage, onClose);
-    wsRef.current = ws;
+      const ws = createTerminalSocket(terminalId, onMessage, () => {
+        setIsConnected(false);
+        if (disposed) return;
+        // Reconnect with capped exponential backoff — recovers automatically
+        // from idle timeouts / network blips instead of leaving the terminal
+        // silently unable to accept input until the page is reloaded.
+        const delay = Math.min(1000 * 2 ** reconnectAttempt, 10000);
+        reconnectAttempt += 1;
+        reconnectTimer = setTimeout(connect, delay);
+      });
+      wsRef.current = ws;
 
-    ws.onopen = () => {
-      setIsConnected(true);
-      // Send initial resize
-      fitAddon.fit();
-      sendResize(ws, terminal.cols, terminal.rows);
+      ws.onopen = () => {
+        reconnectAttempt = 0;
+        setIsConnected(true);
+        fitAddon.fit();
+        sendResize(ws, terminal.cols, terminal.rows);
+      };
     };
+    connect();
 
     // Terminal data (keyboard input) → WebSocket
     const dataDisposable = terminal.onData((data) => {
-      if (ws.readyState === WebSocket.OPEN) {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
         sendInput(ws, data);
       }
     });
@@ -111,7 +135,8 @@ export function useTerminal({ terminalId, active = true }: UseTerminalOptions) {
     // Terminal resize → WebSocket
     const resizeDisposable = terminal.onResize(({ cols, rows }) => {
       setDimensions({ cols, rows });
-      if (ws.readyState === WebSocket.OPEN) {
+      const ws = wsRef.current;
+      if (ws && ws.readyState === WebSocket.OPEN) {
         sendResize(ws, cols, rows);
       }
     });
@@ -122,11 +147,56 @@ export function useTerminal({ terminalId, active = true }: UseTerminalOptions) {
     });
     resizeObserver.observe(container);
 
+    // Pasting/dropping files (e.g. an image copied from the clipboard) can't
+    // go into a terminal as raw bytes — there's no such thing as "pasting an
+    // image" into a text stream. Instead, upload the file and paste its path
+    // so the user can reference it in a shell command. Listened for in the
+    // capture phase so it runs before xterm's own paste handler on its
+    // hidden textarea (which would otherwise just paste nothing/garbage for
+    // a file-only clipboard item).
+    const uploadAndPastePaths = async (files: File[]) => {
+      for (const file of files) {
+        try {
+          const result = await uploadTerminalFile(terminalId, file);
+          terminal.paste(`${shellQuote(result.path)} `);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : 'upload failed';
+          terminal.write(`\r\n\x1b[31m[upload failed: ${file.name} — ${message}]\x1b[0m\r\n`);
+        }
+      }
+    };
+
+    const handlePaste = (e: ClipboardEvent) => {
+      const files = e.clipboardData?.files;
+      if (!files || files.length === 0) return; // plain text — let xterm handle it
+      e.preventDefault();
+      e.stopPropagation();
+      void uploadAndPastePaths(Array.from(files));
+    };
+    container.addEventListener('paste', handlePaste, true);
+
+    const handleDrop = (e: DragEvent) => {
+      const files = e.dataTransfer?.files;
+      if (!files || files.length === 0) return;
+      e.preventDefault();
+      void uploadAndPastePaths(Array.from(files));
+    };
+    const handleDragOver = (e: DragEvent) => {
+      if (e.dataTransfer?.types.includes('Files')) e.preventDefault();
+    };
+    container.addEventListener('drop', handleDrop);
+    container.addEventListener('dragover', handleDragOver);
+
     return () => {
+      disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       resizeObserver.disconnect();
+      container.removeEventListener('paste', handlePaste, true);
+      container.removeEventListener('drop', handleDrop);
+      container.removeEventListener('dragover', handleDragOver);
       dataDisposable.dispose();
       resizeDisposable.dispose();
-      ws.close();
+      wsRef.current?.close();
       wsRef.current = null;
       terminal.dispose();
       termRef.current = null;

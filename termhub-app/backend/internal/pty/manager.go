@@ -43,9 +43,11 @@ func defaultShell() string {
 	return "/bin/bash"
 }
 
-// resolveCWD expands ~ and returns a valid absolute directory.
+// ResolveCWD expands ~ and returns a valid absolute directory.
 // Falls back to the user's home directory if the path is empty or unresolvable.
-func resolveCWD(cwd string) string {
+// Exported so other packages (e.g. the file browser) can resolve a
+// terminal's stored CWD the same way the PTY itself does.
+func ResolveCWD(cwd string) string {
 	home, _ := os.UserHomeDir()
 	if home == "" {
 		home = "/tmp"
@@ -81,7 +83,7 @@ func (m *Manager) Create(id, ownerID uuid.UUID, shell string, cwd string) (*Sess
 	}
 
 	// Resolve cwd: expand ~ and fall back to home dir if empty or invalid.
-	cwd = resolveCWD(cwd)
+	cwd = ResolveCWD(cwd)
 
 	cmd := exec.Command(shell)
 	cmd.Dir = cwd

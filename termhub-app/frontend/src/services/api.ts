@@ -1,5 +1,5 @@
 import { useAuthStore } from '@/stores/authStore';
-import type { AdminMetrics, AuthTokens, AuditLog, Terminal, User, UserRole } from '@/types';
+import type { AdminMetrics, AuthTokens, AuditLog, FileTreeEntry, Terminal, User, UserRole } from '@/types';
 
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080/api';
 
@@ -156,6 +156,89 @@ export function deleteTerminal(id: string) {
   return request<void>(`/terminals/${id}`, {
     method: 'DELETE',
   });
+}
+
+export interface UploadResult {
+  path: string;
+  filename: string;
+}
+
+/**
+ * Uploads a file pasted/dropped into a terminal and returns its server path.
+ * Uses a raw fetch (not `request`) because FormData needs the browser to set
+ * its own multipart Content-Type boundary — `request` always forces
+ * application/json.
+ */
+export async function uploadTerminalFile(terminalId: string, file: File): Promise<UploadResult> {
+  const tokens = useAuthStore.getState().tokens;
+  const form = new FormData();
+  form.append('file', file);
+
+  const response = await fetch(`${BASE_URL}/terminals/${terminalId}/upload`, {
+    method: 'POST',
+    headers: tokens?.accessToken ? { Authorization: `Bearer ${tokens.accessToken}` } : {},
+    body: form,
+  });
+
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      const body: unknown = await response.json();
+      if (body && typeof body === 'object' && 'error' in body) {
+        message = String((body as { error: string }).error);
+      }
+    } catch {
+      // body wasn't JSON — fall back to statusText
+    }
+    throw new ApiError(response.status, message);
+  }
+
+  return response.json() as Promise<UploadResult>;
+}
+
+// ── Files (editor) ──────────────────────────────────────────────────
+// Scoped to a terminal's working directory — same filesystem access the
+// terminal's own shell already has, just browsable/editable over HTTP.
+
+export function listFileTree(terminalId: string, path = '') {
+  const qs = path ? `?path=${encodeURIComponent(path)}` : '';
+  return request<{ path: string; entries: FileTreeEntry[] }>(
+    `/terminals/${terminalId}/files/tree${qs}`,
+  );
+}
+
+export function getFileContent(terminalId: string, path: string) {
+  return request<{ content: string; size: number }>(
+    `/terminals/${terminalId}/files/content?path=${encodeURIComponent(path)}`,
+  );
+}
+
+export function saveFileContent(terminalId: string, path: string, content: string) {
+  return request<{ message: string }>(
+    `/terminals/${terminalId}/files/content?path=${encodeURIComponent(path)}`,
+    { method: 'PUT', body: JSON.stringify({ content }) },
+  );
+}
+
+export function createFileEntry(terminalId: string, path: string, type: 'file' | 'dir') {
+  return request<{ message: string; path: string }>(`/terminals/${terminalId}/files`, {
+    method: 'POST',
+    body: JSON.stringify({ path, type }),
+  });
+}
+
+export function renameFileEntry(terminalId: string, from: string, to: string) {
+  return request<{ message: string; path: string }>(`/terminals/${terminalId}/files/rename`, {
+    method: 'POST',
+    body: JSON.stringify({ from, to }),
+  });
+}
+
+export function deleteFileEntry(terminalId: string, path: string) {
+  return request<{ message: string }>(
+    `/terminals/${terminalId}/files?path=${encodeURIComponent(path)}`,
+    { method: 'DELETE' },
+  );
 }
 
 // ── Admin ────────────────────────────────────────────────────────────

@@ -52,3 +52,11 @@ export interface AdminMetrics {
   activeTerminals: number;
   activeConnections: number;
 }
+
+export interface FileTreeEntry {
+  name: string;
+  path: string;
+  isDir: boolean;
+  size: number;
+  modTime: string;
+}

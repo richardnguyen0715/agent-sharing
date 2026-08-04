@@ -107,6 +107,8 @@ func main() {
 	wsHandler := handler.NewWSHandler(hub, ptyMgr, terminalService, authService, auditService, policyEngine, recordingMgr)
 	healthHandler := handler.NewHealthHandler(dbpool)
 	recordingHandler := handler.NewRecordingHandler(recordingMgr, authService, cfg.JWTSecret)
+	uploadHandler := handler.NewUploadHandler(terminalService, cfg.JWTSecret, "./uploads")
+	filesHandler := handler.NewFilesHandler(terminalService, cfg.JWTSecret)
 
 	// Set up the chi router with global middleware.
 	r := chi.NewRouter()
@@ -128,6 +130,16 @@ func main() {
 		// Terminal-scoped recording routes: POST /api/terminals/{id}/recording/start|stop
 		r.Route("/terminals/{id}/recording", func(r chi.Router) {
 			r.Mount("/", recordingHandler.TerminalRecordingRoutes())
+		})
+
+		// Terminal-scoped upload route: POST /api/terminals/{id}/upload
+		r.Route("/terminals/{id}/upload", func(r chi.Router) {
+			r.Mount("/", uploadHandler.TerminalUploadRoutes())
+		})
+
+		// Terminal-scoped file browser/editor routes: /api/terminals/{id}/files/*
+		r.Route("/terminals/{id}/files", func(r chi.Router) {
+			r.Mount("/", filesHandler.TerminalFilesRoutes())
 		})
 	})
 

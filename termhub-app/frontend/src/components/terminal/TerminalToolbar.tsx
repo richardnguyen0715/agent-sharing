@@ -6,16 +6,22 @@ import {
   IconCopy,
   IconPlayerRecord,
   IconTerminal2,
+  IconCode,
   IconLoader2,
 } from '@tabler/icons-react';
+import { cn } from '@/lib/utils';
 import { useTerminalStore } from '@/stores/terminalStore';
 import { useUIStore } from '@/stores/uiStore';
 
+export type TerminalPaneView = 'terminal' | 'editor';
+
 interface TerminalToolbarProps {
   terminalId: string;
+  view: TerminalPaneView;
+  onViewChange: (view: TerminalPaneView) => void;
 }
 
-export function TerminalToolbar({ terminalId }: TerminalToolbarProps) {
+export function TerminalToolbar({ terminalId, view, onViewChange }: TerminalToolbarProps) {
   const deleteTerminal = useTerminalStore((s) => s.deleteTerminal);
   const terminals = useTerminalStore((s) => s.terminals);
   const toggleRightPanel = useUIStore((s) => s.toggleRightPanel);
@@ -37,11 +43,33 @@ export function TerminalToolbar({ terminalId }: TerminalToolbarProps) {
 
   return (
     <div className="flex h-9 shrink-0 items-center justify-between border-b border-terminal-border bg-terminal-bg-toolbar px-3">
-      <div className="flex items-center gap-2">
-        <IconTerminal2 size={14} className="text-terminal-prompt" />
-        <span className="font-mono text-xs text-terminal-output">
-          {shellName} — <span className="text-terminal-path">{cwd}</span>
-        </span>
+      <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2">
+          <IconTerminal2 size={14} className="text-terminal-prompt" />
+          <span className="font-mono text-xs text-terminal-output">
+            {shellName} — <span className="text-terminal-path">{cwd}</span>
+          </span>
+        </div>
+        <div className="flex items-center rounded border border-terminal-border p-0.5">
+          <button
+            onClick={() => onViewChange('terminal')}
+            className={cn(
+              'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]',
+              view === 'terminal' ? 'bg-terminal-border text-terminal-text' : 'text-terminal-output hover:text-terminal-text',
+            )}
+          >
+            <IconTerminal2 size={12} /> Terminal
+          </button>
+          <button
+            onClick={() => onViewChange('editor')}
+            className={cn(
+              'flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px]',
+              view === 'editor' ? 'bg-terminal-border text-terminal-text' : 'text-terminal-output hover:text-terminal-text',
+            )}
+          >
+            <IconCode size={12} /> Editor
+          </button>
+        </div>
       </div>
       <div className="flex items-center gap-0.5">
         <button

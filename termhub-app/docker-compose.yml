@@ -44,6 +44,11 @@ services:
       start_period: 10s
     volumes:
       - termhub-recordings:/app/recordings
+      - termhub-uploads:/app/uploads
+      # Every terminal's shell runs as root inside this container with $HOME
+      # as its default cwd — persist it, or a redeploy silently wipes
+      # whatever users have been working on in their terminals.
+      - termhub-home:/root
     restart: unless-stopped
 
   postgres:
@@ -83,3 +88,5 @@ volumes:
   termhub-pgdata:
   termhub-redis:
   termhub-recordings:
+  termhub-uploads:
+  termhub-home:

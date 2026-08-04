@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -36,6 +37,15 @@ type WSHandler struct {
 	auditService    *service.AuditService
 	policyEngine    *policy.Engine
 	recordingMgr    *recording.Manager
+
+	// readerMu guards activeReaders, which tracks which terminals already
+	// have a goroutine reading their PTY. A PTY's underlying file descriptor
+	// must only ever be read by one goroutine at a time — concurrent reads
+	// (e.g. from an overlapping reload or a second browser tab) race on the
+	// same fd and tear ANSI escape sequences in half, corrupting the stream
+	// for every connected client.
+	readerMu      sync.Mutex
+	activeReaders map[uuid.UUID]bool
 }
 
 // NewWSHandler creates a new WSHandler.
@@ -56,6 +66,7 @@ func NewWSHandler(
 		auditService:    auditSvc,
 		policyEngine:    policyEngine,
 		recordingMgr:    recordingMgr,
+		activeReaders:   make(map[uuid.UUID]bool),
 	}
 }
 
@@ -160,35 +171,56 @@ func (h *WSHandler) HandleTerminal(w http.ResponseWriter, r *http.Request) {
 		Str("user_id", claims.UserID).
 		Msg("WebSocket connection established")
 
-	// 8. Start goroutine to read PTY output and broadcast to all clients of this terminal.
-	go func() {
-		buf := make([]byte, 4096)
-		for {
-			n, readErr := ptySession.Reader().Read(buf)
-			if readErr != nil {
-				// PTY closed or process exited.
-				errMsg := wshub.WSMessage{Type: "error", Data: "terminal process exited"}
-				jsonData, _ := json.Marshal(errMsg)
-				h.hub.SendToTerminal(terminalID, jsonData)
-				log.Info().
-					Str("terminal_id", terminalIDStr).
-					Msg("PTY read loop ended")
-				return
-			}
-			if n > 0 {
-				data := buf[:n]
-				msg := wshub.WSMessage{Type: "output", Data: string(data)}
-				jsonData, marshalErr := json.Marshal(msg)
-				if marshalErr != nil {
-					continue
-				}
-				h.hub.SendToTerminal(terminalID, jsonData)
+	// 8. Start a goroutine to read PTY output and broadcast to all clients of
+	// this terminal — but only one such reader may ever run per terminal.
+	// The PTY's fd is a single stream; two goroutines calling Read() on it
+	// concurrently (e.g. an old connection still closing while a page reload
+	// opens a new one, or two browser tabs) would each get a random slice of
+	// the bytes, tearing ANSI escape sequences in half and corrupting output
+	// for every client on the terminal.
+	h.readerMu.Lock()
+	needsReader := !h.activeReaders[terminalID]
+	if needsReader {
+		h.activeReaders[terminalID] = true
+	}
+	h.readerMu.Unlock()
 
-				// Record output (non-blocking, best-effort).
-				h.recordingMgr.RecordOutput(terminalIDStr, data)
+	if needsReader {
+		go func() {
+			defer func() {
+				h.readerMu.Lock()
+				delete(h.activeReaders, terminalID)
+				h.readerMu.Unlock()
+			}()
+
+			buf := make([]byte, 4096)
+			for {
+				n, readErr := ptySession.Reader().Read(buf)
+				if readErr != nil {
+					// PTY closed or process exited.
+					errMsg := wshub.WSMessage{Type: "error", Data: "terminal process exited"}
+					jsonData, _ := json.Marshal(errMsg)
+					h.hub.SendToTerminal(terminalID, jsonData)
+					log.Info().
+						Str("terminal_id", terminalIDStr).
+						Msg("PTY read loop ended")
+					return
+				}
+				if n > 0 {
+					data := buf[:n]
+					msg := wshub.WSMessage{Type: "output", Data: string(data)}
+					jsonData, marshalErr := json.Marshal(msg)
+					if marshalErr != nil {
+						continue
+					}
+					h.hub.SendToTerminal(terminalID, jsonData)
+
+					// Record output (non-blocking, best-effort).
+					h.recordingMgr.RecordOutput(terminalIDStr, data)
+				}
 			}
-		}
-	}()
+		}()
+	}
 
 	// 9. Define PTY write function with policy enforcement and recording.
 	ptyWriter := func(data []byte) error {
