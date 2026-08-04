@@ -216,3 +216,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# The Python "lib/" rule above also matches frontend/src/lib/ in JS/TS
+# subprojects — un-ignore those explicitly.
+!termhub-app/frontend/src/lib/
+!termhub-app/frontend/src/lib/**
