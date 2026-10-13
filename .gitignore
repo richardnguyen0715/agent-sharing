@@ -221,3 +221,4 @@ __marimo__/
 # subprojects — un-ignore those explicitly.
 !termhub-app/frontend/src/lib/
 !termhub-app/frontend/src/lib/**
+.DS_Store
